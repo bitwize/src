@@ -1,41 +1,4 @@
-/*	$NetBSD: ext2fs_dinode.h,v 1.26 2013/01/22 09:39:15 dholland Exp $	*/
-
-/*
- * Copyright (c) 1982, 1989, 1993
- *	The Regents of the University of California.  All rights reserved.
- * (c) UNIX System Laboratories, Inc.
- * All or some portions of this file are derived from material licensed
- * to the University of California by American Telephone and Telegraph
- * Co. or Unix System Laboratories, Inc. and are reproduced herein with
- * the permission of UNIX System Laboratories, Inc.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- *	@(#)dinode.h	8.6 (Berkeley) 9/13/94
- *  Modified for ext2fs by Manuel Bouyer.
- */
+/*	$NetBSD$ */
 
 /*
  * Copyright (c) 2013 Jeffrey T. Read.
@@ -66,14 +29,20 @@
 #define _UFS_EXT2FS_EXT3FS_JOURNAL_H_
 
 #include <sys/types.h>
-
-
+#include <sys/queue.h>
+#include <sys/buf.h>
 
 /*
  * The standard header for all descriptor blocks.
  */
 
-#define JOURNAL_MAGIC 0xc03b3998U
+#define JOURNAL_MAGIC (0xc03b3998U)
+
+#define JOURNAL_TYPE_DESCRIPTOR     (1)
+#define JOURNAL_TYPE_COMMIT         (2)
+#define JOURNAL_TYPE_SUPERBLOCK_V1  (3)
+#define JOURNAL_TYPE_SUPERBLOCK_V2  (4)
+#define JOURNAL_TYPE_REVOKE         (5)
 
 struct journal_block_header {
 	uint32_t	jbh_magic; /* magic number */
@@ -169,5 +138,31 @@ struct journal_commit_block {
 	uint32_t  jcb_timestamp_nsec;
 };
 
+struct vnode;
+struct m_ext2fs;
+struct journal_transaction;
+
+struct journal {
+	struct vnode   *jrn_vp;		/* vnode of journal file */
+	struct m_ext2fs *jrn_fs;	/* fs we're journalling */
+	/* transaction currently accumulating IO ops */
+	struct journal_transaction *jrn_active_transaction;
+	/* transaction being committed */
+	struct journal_transaction *jrn_commit_transaction;
+	/* list of transactions to be checkpointed */
+	LIST_HEAD(journal_transaction) jrn_checkpoint_transactions;
+	uint32_t  jrn_flags;
+	blkcnt_t  jrn_size;
+	blkcnt_t  jrn_free;
+	daddr_t   jrn_first;
+	daddr_t   jrn_last;
+	daddr_t   jrn_head;
+	daddr_t   jrn_tail;
+};
+
+int journal_open(struct m_ext2fs *, struct journal **);
+int journal_get_block(struct journal *, daddr_t, buf_t **);
+int journal_next_block(struct journal *, buf_t **);
+int journal_close(struct journal **);
 
 #endif /* !_UFS_EXT2FS_EXT3FS_JOURNAL_H_ */

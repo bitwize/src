@@ -2,6 +2,6 @@
 
 INCSDIR= /usr/include/ufs/ext2fs
 
-INCS=	ext2fs.h ext2fs_dinode.h ext2fs_dir.h ext2fs_extern.h
+INCS=	ext2fs.h ext2fs_dinode.h ext2fs_dir.h ext2fs_extern.h ext3fs_journal.h
 
 .include <bsd.kinc.mk>
