@@ -101,6 +101,7 @@ __KERNEL_RCSID(0, "$NetBSD: ext2fs_vfsops.c,v 1.175 2013/11/23 13:35:36 christos
 #include <ufs/ext2fs/ext2fs.h>
 #include <ufs/ext2fs/ext2fs_dir.h>
 #include <ufs/ext2fs/ext2fs_extern.h>
+#include <ufs/ext2fs/ext3fs_journal.h>
 
 MODULE(MODULE_CLASS_VFS, ext2fs, "ffs");
 
@@ -661,6 +662,7 @@ ext2fs_mountfs(struct vnode *devvp, struct mount *mp)
 	dev_t dev;
 	int error, i, ronly;
 	kauth_cred_t cred;
+	struct vnode *jrnvp;
 
 	dev = devvp->v_rdev;
 	cred = l ? l->l_cred : NOCRED;
@@ -762,6 +764,15 @@ ext2fs_mountfs(struct vnode *devvp, struct mount *mp)
 	ump->um_dirblksiz = m_fs->e2fs_bsize;
 	ump->um_maxfilesize = ((uint64_t)0x80000000 * m_fs->e2fs_bsize - 1);
 	spec_node_setmountedfs(devvp, mp);
+	devvp->v_specmountpoint = mp;
+	error = journal_open_inode(mp,&jrnvp);
+	if(error) {
+		printf("ext2: could not open journal\n");
+	}
+	else {
+		printf("ext2: found journal\n");
+	}
+	vrele(jrnvp);
 	return (0);
 
 out:

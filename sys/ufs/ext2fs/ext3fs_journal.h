@@ -139,6 +139,7 @@ struct journal_commit_block {
 };
 
 struct vnode;
+struct mount;
 struct m_ext2fs;
 struct journal_transaction;
 
@@ -150,7 +151,7 @@ struct journal {
 	/* transaction being committed */
 	struct journal_transaction *jrn_commit_transaction;
 	/* list of transactions to be checkpointed */
-	LIST_HEAD(journal_transaction) jrn_checkpoint_transactions;
+	LIST_HEAD(journal_transaction_head, journal_transaction) jrn_checkpoint_transactions;
 	uint32_t  jrn_flags;
 	blkcnt_t  jrn_size;
 	blkcnt_t  jrn_free;
@@ -160,7 +161,8 @@ struct journal {
 	daddr_t   jrn_tail;
 };
 
-int journal_open(struct m_ext2fs *, struct journal **);
+int journal_open(struct mount *, struct journal **);
+int journal_open_inode(struct mount *, struct vnode **);
 int journal_get_block(struct journal *, daddr_t, buf_t **);
 int journal_next_block(struct journal *, buf_t **);
 int journal_close(struct journal **);

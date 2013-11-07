@@ -37,17 +37,20 @@
 #include <sys/extattr.h>
 #include <sys/param.h>
 #include <sys/bswap.h>
-#include <sys/ufs/ufs/ufsmount.h>
-#include <sys/ufs/ext2fs/ext2fs.h>
-#include <sys/ufs/ext2fs/ext2fs_dinode.h>
-#include <sys/ufs/ext2fs/ext3fs_journal.h>
+#include <ufs/ufs/ufsmount.h>
+#include <ufs/ext2fs/ext2fs.h>
+#include <ufs/ext2fs/ext2fs_dinode.h>
+#include <ufs/ext2fs/ext3fs_journal.h>
 
+
+bool is_journal_block(void *);
+int journal_open_inode(struct mount *, struct vnode **);
 
 bool
 is_journal_block(void *data)
 {
 	struct journal_block_header *jbh = 
-	    (struct journal_block_headr *)data;
+	    (struct journal_block_header *)data;
 #if BYTE_ORDER == BIG_ENDIAN
 	return (jbh->jbh_magic == JOURNAL_MAGIC);
 #else
@@ -56,13 +59,13 @@ is_journal_block(void *data)
 }
 
 int
-journal_open_inode(struct mount *mp,struct vnode **vpp)
+journal_open_inode(struct mount *mp, struct vnode **vpp)
 {
 	struct buf *jb_buf;
 	void *jb_data;
 	struct ufsmount *ump = (struct ufsmount *)mp->mnt_data;
 	struct m_ext2fs *fs = ump->um_e2fs;
-	int result = VFS_VGET(mp,EXT2_JOURNALINO,vpp);
+	int result = VFS_VGET(mp, EXT2_JOURNALINO, vpp);
 	if(result != 0) {
 		*vpp = NULL;
 		return result;
@@ -74,9 +77,13 @@ journal_open_inode(struct mount *mp,struct vnode **vpp)
 		*vpp = NULL;
 		return result;
 	}
+	jb_data = jb_buf->b_data;
 	if(!is_journal_block(jb_data)) {
 		vrele(*vpp);
+		brelse(jb_buf, 0);
 		*vpp = NULL;
 		return EINVAL;
-	}	
+	}
+	brelse(jb_buf, 0);
+	return 0;
 }
