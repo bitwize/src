@@ -31,10 +31,17 @@
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/buf.h>
+#include <sys/bswap.h>
 
-/*
- * The standard header for all descriptor blocks.
- */
+#if BYTE_ORDER == BIG_ENDIAN
+#define J_BSWAP16(x) (x)
+#define J_BSWAP32(x) (x)
+#define J_BSWAP64(x) (x)
+#else
+#define J_BSWAP16(x) bswap16(x)
+#define J_BSWAP32(x) bswap32(x)
+#define J_BSWAP64(x) bswap16(x)
+#endif
 
 #define JOURNAL_MAGIC (0xc03b3998U)
 
@@ -43,6 +50,10 @@
 #define JOURNAL_TYPE_SUPERBLOCK_V1  (3)
 #define JOURNAL_TYPE_SUPERBLOCK_V2  (4)
 #define JOURNAL_TYPE_REVOKE         (5)
+
+/*
+ * The standard header for all descriptor blocks.
+ */
 
 struct journal_block_header {
 	uint32_t	jbh_magic; /* magic number */
@@ -146,25 +157,33 @@ struct journal_transaction;
 struct journal {
 	struct vnode   *jrn_vp;		/* vnode of journal file */
 	struct m_ext2fs *jrn_fs;	/* fs we're journalling */
+
+	/* superblock of journal */
+	struct journal_superblock *jrn_sb;
+
 	/* transaction currently accumulating IO ops */
 	struct journal_transaction *jrn_active_transaction;
+
 	/* transaction being committed */
 	struct journal_transaction *jrn_commit_transaction;
+
 	/* list of transactions to be checkpointed */
-	LIST_HEAD(journal_transaction_head, journal_transaction) jrn_checkpoint_transactions;
+	LIST_HEAD(journal_transaction_head,
+		  journal_transaction) jrn_checkpoint_transactions;
+
 	uint32_t  jrn_flags;
-	blkcnt_t  jrn_size;
-	blkcnt_t  jrn_free;
+	size_t    jrn_block_size;
+	blkcnt_t  jrn_max_blocks;
+	blkcnt_t  jrn_free_blocks;
 	daddr_t   jrn_first;
 	daddr_t   jrn_last;
-	daddr_t   jrn_head;
-	daddr_t   jrn_tail;
+	daddr_t   jrn_log_start;
+	daddr_t   jrn_log_end;
 };
 
 int journal_open(struct mount *, struct journal **);
-int journal_open_inode(struct mount *, struct vnode **);
 int journal_get_block(struct journal *, daddr_t, buf_t **);
 int journal_next_block(struct journal *, buf_t **);
-int journal_close(struct journal **);
+int journal_close(struct journal *);
 
 #endif /* !_UFS_EXT2FS_EXT3FS_JOURNAL_H_ */

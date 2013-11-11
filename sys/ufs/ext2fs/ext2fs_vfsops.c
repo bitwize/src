@@ -662,7 +662,7 @@ ext2fs_mountfs(struct vnode *devvp, struct mount *mp)
 	dev_t dev;
 	int error, i, ronly;
 	kauth_cred_t cred;
-	struct vnode *jrnvp;
+	struct journal *jrn;
 
 	dev = devvp->v_rdev;
 	cred = l ? l->l_cred : NOCRED;
@@ -765,14 +765,19 @@ ext2fs_mountfs(struct vnode *devvp, struct mount *mp)
 	ump->um_maxfilesize = ((uint64_t)0x80000000 * m_fs->e2fs_bsize - 1);
 	spec_node_setmountedfs(devvp, mp);
 	devvp->v_specmountpoint = mp;
-	error = journal_open_inode(mp,&jrnvp);
+	error = journal_open(mp, &jrn);
 	if(error) {
+#ifdef DEBUG_EXT2
 		printf("ext2: could not open journal\n");
+#endif
 	}
 	else {
-		printf("ext2: found journal\n");
+#ifdef DEBUG_EXT2
+		printf("ext2: found journal, jrnsiz: %u, blksiz %u\n",
+		       (int)jrn->jrn_max_blocks, (int)jrn->jrn_block_size);
+#endif
+		journal_close(jrn);
 	}
-	vrele(jrnvp);
 	return (0);
 
 out:
