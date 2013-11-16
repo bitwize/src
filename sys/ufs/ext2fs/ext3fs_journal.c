@@ -47,12 +47,16 @@
 #include <string.h>
 #endif
 
-bool is_journal_block(void *);
-int journal_open_inode(struct mount *, struct vnode **,
+static bool is_journal_block(void *);
+static int journal_open_inode(struct mount *, struct vnode **,
     struct journal_superblock **);
-void e3fs_jsb_bswap(struct journal_superblock *, struct journal_superblock *);
+static void e3fs_jsb_bswap(struct journal_superblock *,
+    struct journal_superblock *);
+/* static int journal_find_log_start(struct journal *); */
+static void journal_invalidate_superblock(struct journal *);
+static int journal_init(struct journal *);
 
-bool
+static bool
 is_journal_block(void *data)
 {
 	struct journal_block_header *jbh = 
@@ -60,7 +64,7 @@ is_journal_block(void *data)
 	return (J_BSWAP32(jbh->jbh_magic) == JOURNAL_MAGIC);
 }
 
-int
+static int
 journal_open_inode(struct mount *mp, struct vnode **vpp,
 		   struct journal_superblock **sbpp)
 {
@@ -75,9 +79,8 @@ journal_open_inode(struct mount *mp, struct vnode **vpp,
 		*vpp = NULL;
 		return result;
 	}
-	result = bread(*vpp,0,(int)fs->e2fs_bsize, NOCRED, B_MODIFY, &jb_buf);
+	result = bread(*vpp, 0, (int)fs->e2fs_bsize, NOCRED, B_MODIFY, &jb_buf);
 	if(result != 0) {
-		brelse(jb_buf, 0);
 		vput(*vpp);
 		*vpp = NULL;
 		return result;
@@ -125,8 +128,11 @@ journal_open(struct mount *mp,struct journal **jpp)
 		return error;
 	}
 	(*jpp)->jrn_fs = fs;
-	(*jpp)->jrn_max_blocks = (*jpp)->jrn_sb->jsb_max_blocks;
-	(*jpp)->jrn_block_size = (*jpp)->jrn_sb->jsb_block_size;
+	error = journal_init(*jpp);
+	if(error != 0) {
+		journal_close(*jpp);
+		return error;
+	}
 	return 0;
 }
 
@@ -136,31 +142,79 @@ journal_close(struct journal *jp)
 	if(jp->jrn_vp != NULL) {
 		vput(jp->jrn_vp);
 	}
-	kmem_free(jp->jrn_sb, sizeof(struct journal_superblock));
+	if(jp->jrn_sb != NULL) {
+		kmem_free(jp->jrn_sb, sizeof(struct journal_superblock));
+	}
 	kmem_free(jp, sizeof(struct journal));
 	return 0;
 }
 
-void
+static void
 e3fs_jsb_bswap(struct journal_superblock *old,
 	       struct journal_superblock *new)
 {
-	new->jsb_header.jbh_magic = J_BSWAP32(old->jsb_header.jbh_magic);
+	new->jsb_header.jbh_magic      = J_BSWAP32(old->jsb_header.jbh_magic);
 	new->jsb_header.jbh_block_type = J_BSWAP32(old->jsb_header.jbh_block_type);
-	new->jsb_header.jbh_sequence = J_BSWAP32(old->jsb_header.jbh_sequence);
-	new->jsb_block_size = J_BSWAP32(old->jsb_block_size);
-	new->jsb_max_blocks = J_BSWAP32(old->jsb_max_blocks);
-	new->jsb_first_block = J_BSWAP32(old->jsb_first_block);
-	new->jsb_sequence = J_BSWAP32(old->jsb_sequence);
-	new->jsb_feature_compat = J_BSWAP32(old->jsb_feature_compat);
-	new->jsb_feature_incompat = J_BSWAP32(old->jsb_feature_incompat);
-	new->jsb_feature_rocompat = J_BSWAP32(old->jsb_feature_rocompat);
+	new->jsb_header.jbh_sequence   = J_BSWAP32(old->jsb_header.jbh_sequence);
+	new->jsb_block_size            = J_BSWAP32(old->jsb_block_size);
+	new->jsb_max_blocks            = J_BSWAP32(old->jsb_max_blocks);
+	new->jsb_first_block           = J_BSWAP32(old->jsb_first_block);
+	new->jsb_sequence              = J_BSWAP32(old->jsb_sequence);
+	new->jsb_feature_compat        = J_BSWAP32(old->jsb_feature_compat);
+	new->jsb_feature_incompat      = J_BSWAP32(old->jsb_feature_incompat);
+	new->jsb_feature_rocompat      = J_BSWAP32(old->jsb_feature_rocompat);
+	new->jsb_num_users             = J_BSWAP32(old->jsb_num_users);
+	new->jsb_dynsuper_copy         = J_BSWAP32(old->jsb_dynsuper_copy);
+	new->jsb_trans_max             = J_BSWAP32(old->jsb_trans_max);
+	new->jsb_trans_data_max        = J_BSWAP32(old->jsb_trans_data_max);
+	new->jsb_checksum_type         = old->jsb_checksum_type;
+	new->jsb_checksum              = J_BSWAP32(old->jsb_checksum);
+
 	memcpy(new->jsb_uuid,old->jsb_uuid,16);
-	new->jsb_num_users = J_BSWAP32(old->jsb_num_users);
-	new->jsb_dynsuper_copy = J_BSWAP32(old->jsb_dynsuper_copy);
-	new->jsb_trans_max = J_BSWAP32(old->jsb_trans_max);
-	new->jsb_trans_data_max = J_BSWAP32(old->jsb_trans_data_max);
-	new->jsb_checksum_type = old->jsb_checksum_type;
-	new->jsb_checksum = J_BSWAP32(old->jsb_checksum);
 	memcpy(new->jsb_users,old->jsb_users,16 * 48);
+}
+
+int
+journal_get_block(struct journal *jp, daddr_t blockno, buf_t **out_buf)
+{
+	int result;
+	result = bread(jp->jrn_vp, blockno,(int)jp->jrn_fs->e2fs_bsize,
+		       NOCRED, B_MODIFY, out_buf);
+	if(result != 0) {
+		*out_buf = NULL;
+		return result;
+	}
+	return 0;
+}
+
+static void
+journal_invalidate_superblock(struct journal *jp)
+{
+	if(jp->jrn_sb != NULL)
+	{
+		kmem_free(jp->jrn_sb, sizeof(struct journal_superblock));
+		jp->jrn_sb = NULL;
+	}
+}
+
+static int
+journal_init(struct journal *jp)
+{
+	daddr_t first, last;
+	
+	first      = jp->jrn_sb->jsb_first_block;
+	last       = jp->jrn_sb->jsb_max_blocks;
+	if(last - first < JOURNAL_MIN_BLOCKS)
+	{
+		journal_invalidate_superblock(jp);
+		printf("journal is too small\n");
+		return EINVAL;
+	}
+	jp->jrn_first      = first;
+	jp->jrn_last       = last;
+	jp->jrn_max_blocks = jp->jrn_sb->jsb_max_blocks;
+	jp->jrn_block_size = jp->jrn_sb->jsb_block_size;
+	jp->jrn_log_start  = jp->jrn_first;
+	jp->jrn_log_end    = jp->jrn_first;
+	return 0;
 }

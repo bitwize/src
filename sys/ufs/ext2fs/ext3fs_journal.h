@@ -61,6 +61,8 @@ struct journal_block_header {
 	uint32_t	jbh_sequence; /* sequence number */
 };
 
+#define JOURNAL_MIN_BLOCKS          (1024)
+
 /*
  * Journal superblock
  */
@@ -97,6 +99,12 @@ struct journal_superblock {
  * followed by the data blocks (one per tag), followed by a commit
  * block (see `struct journal_commit_block' below).
  */
+
+#define JOURNAL_TAG_ESCAPED         (1)
+#define JOURNAL_TAG_SAME_UUID       (2)
+#define JOURNAL_TAG_DELETED         (4)
+#define JOURNAL_TAG_LAST_ENTRY      (8)
+
 
 struct journal_descriptor_tag {
 	uint32_t  jdt_blockno_low;     	/* low bits of block no. to be updated */
