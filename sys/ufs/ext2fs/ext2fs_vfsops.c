@@ -764,7 +764,6 @@ ext2fs_mountfs(struct vnode *devvp, struct mount *mp)
 	ump->um_dirblksiz = m_fs->e2fs_bsize;
 	ump->um_maxfilesize = ((uint64_t)0x80000000 * m_fs->e2fs_bsize - 1);
 	spec_node_setmountedfs(devvp, mp);
-	devvp->v_specmountpoint = mp;
 	error = journal_open(mp, &jrn);
 	if(error) {
 #ifdef DEBUG_EXT2
