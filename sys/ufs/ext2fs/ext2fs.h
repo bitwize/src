@@ -263,7 +263,7 @@ struct m_ext2fs {
  *    store file type to e2d_type in struct ext2fs_direct
  *    (on REV0 e2d_namlen is uint16_t and no e2d_type, like ffs)
  */
-#define EXT2F_COMPAT_SUPP		0x0000
+#define EXT2F_COMPAT_SUPP	        (EXT2F_COMPAT_HASJOURNAL)
 #define EXT2F_ROCOMPAT_SUPP		(EXT2F_ROCOMPAT_SPARSESUPER \
 					 | EXT2F_ROCOMPAT_LARGEFILE \
 					 | EXT2F_ROCOMPAT_HUGE_FILE)

@@ -764,18 +764,21 @@ ext2fs_mountfs(struct vnode *devvp, struct mount *mp)
 	ump->um_dirblksiz = m_fs->e2fs_bsize;
 	ump->um_maxfilesize = ((uint64_t)0x80000000 * m_fs->e2fs_bsize - 1);
 	spec_node_setmountedfs(devvp, mp);
-	error = journal_open(mp, &jrn);
-	if(error) {
+	if(m_fs->e2fs.e2fs_features_compat &
+	   EXT2F_COMPAT_HASJOURNAL) {
+		error = journal_open(mp, &jrn);
+		if(error) {
 #ifdef DEBUG_EXT2
-		printf("ext2: could not open journal\n");
+			printf("ext2: could not open journal\n");
 #endif
-	}
-	else {
+		}
+		else {
 #ifdef DEBUG_EXT2
-		printf("ext2: found journal, jrnsiz: %u, blksiz %u\n",
-		       (int)jrn->jrn_max_blocks, (int)jrn->jrn_block_size);
+			printf("ext2: found journal, jrnsiz: %u, blksiz %u\n",
+			       (int)jrn->jrn_max_blocks, (int)jrn->jrn_block_size);
 #endif
-		journal_close(jrn);
+			journal_close(jrn);
+		}
 	}
 	return (0);
 
