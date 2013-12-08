@@ -105,10 +105,12 @@ journal_open_inode(struct mount *mp, struct vnode **vpp,
 		sizeof(struct journal_superblock), KM_SLEEP);
 	if(*sbpp == NULL) {
 		brelse(jb_buf, 0);
+		vput(*vpp);
 		return ENOMEM;
 	}
 	e3fs_jsb_bswap(jsb, *sbpp);
 	brelse(jb_buf, 0);
+	VOP_UNLOCK(*vpp);
 	return 0;
 }
 
@@ -140,7 +142,7 @@ int
 journal_close(struct journal *jp)
 {
 	if(jp->jrn_vp != NULL) {
-		vput(jp->jrn_vp);
+		vrele(jp->jrn_vp);
 	}
 	if(jp->jrn_sb != NULL) {
 		kmem_free(jp->jrn_sb, sizeof(struct journal_superblock));

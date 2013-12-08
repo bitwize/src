@@ -168,6 +168,7 @@ struct ext2fs {
 	uint32_t  reserved2[204];
 };
 
+struct journal;
 
 /* in-memory data for ext2fs */
 struct m_ext2fs {
@@ -185,6 +186,7 @@ struct m_ext2fs {
 	int32_t	e2fs_ipb;	/* number of inodes per block */
 	int32_t	e2fs_itpg;	/* number of inode table per group */
 	struct	ext2_gd *e2fs_gd; /* group descripors */
+	struct journal *e2fs_journal; /* optional journal for ext3 */
 };
 
 

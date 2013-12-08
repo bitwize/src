@@ -770,6 +770,7 @@ ext2fs_mountfs(struct vnode *devvp, struct mount *mp)
 		if(error) {
 #ifdef DEBUG_EXT2
 			printf("ext2: could not open journal\n");
+			m_fs->e2fs_journal = NULL;
 #endif
 		}
 		else {
@@ -777,8 +778,11 @@ ext2fs_mountfs(struct vnode *devvp, struct mount *mp)
 			printf("ext2: found journal, jrnsiz: %u, blksiz %u\n",
 			       (int)jrn->jrn_max_blocks, (int)jrn->jrn_block_size);
 #endif
-			journal_close(jrn);
+			m_fs->e2fs_journal = jrn;
 		}
+	}
+	else {
+		m_fs->e2fs_journal = NULL;
 	}
 	return (0);
 
@@ -806,10 +810,13 @@ ext2fs_unmount(struct mount *mp, int mntflags)
 	flags = 0;
 	if (mntflags & MNT_FORCE)
 		flags |= FORCECLOSE;
-	if ((error = ext2fs_flushfiles(mp, flags)) != 0)
-		return (error);
 	ump = VFSTOUFS(mp);
 	fs = ump->um_e2fs;
+	if(fs->e2fs_journal != NULL) {
+		journal_close(fs->e2fs_journal);
+	}
+	if ((error = ext2fs_flushfiles(mp, flags)) != 0)
+		return (error);
 	if (fs->e2fs_ronly == 0 &&
 		ext2fs_cgupdate(ump, MNT_WAIT) == 0 &&
 		(fs->e2fs.e2fs_state & E2FS_ERRORS) == 0) {
