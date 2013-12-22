@@ -61,7 +61,14 @@ struct journal_block_header {
 	uint32_t	jbh_sequence; /* sequence number */
 };
 
-#define JOURNAL_MIN_BLOCKS          (1024)
+#define JOURNAL_MIN_BLOCKS		(1024)
+
+#define JOURNALF_COMPAT_CHECKSUM	(1)
+
+#define JOURNALF_INCOMPAT_REVOKE	(1)
+#define JOURNALF_INCOMPAT_64BIT		(2)
+#define JOURNALF_INCOMPAT_ASYNC_COMMIT	(4)
+#define JOURNALF_INCOMPAT_CHECKSUM_V2	(8)
 
 /*
  * Journal superblock
@@ -117,8 +124,8 @@ struct journal_descriptor_tail {
 	uint32_t  jdt_checksum;		/* crc32 of uuid and descriptor */
 };
 
-#define JOURNAL_TAGSIZE_64BIT	(sizeof(journal_descriptor_tag))
-#define JOURNAL_TAGSIZE		(sizeof(journal_descriptor_tag) - \
+#define JOURNAL_TAGSIZE_64BIT	(sizeof(struct journal_descriptor_tag))
+#define JOURNAL_TAGSIZE		(sizeof(struct journal_descriptor_tag) - \
 				     sizeof(uint32_t))
 
 /*
@@ -192,6 +199,7 @@ struct journal {
 int journal_open(struct mount *, struct journal **);
 int journal_get_block(struct journal *, daddr_t, buf_t **);
 int journal_next_block(struct journal *, buf_t **);
+size_t journal_tag_size(struct journal *jp);
 int journal_close(struct journal *);
 
 #endif /* !_UFS_EXT2FS_EXT3FS_JOURNAL_H_ */

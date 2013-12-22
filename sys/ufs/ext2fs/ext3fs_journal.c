@@ -48,6 +48,8 @@
 #endif
 
 static bool is_journal_block(void *);
+static uint32_t journal_block_type(void *);
+static uint32_t journal_block_sequence(void *);
 static int journal_open_inode(struct mount *, struct vnode **,
     struct journal_superblock **);
 static void e3fs_jsb_bswap(struct journal_superblock *,
@@ -55,6 +57,7 @@ static void e3fs_jsb_bswap(struct journal_superblock *,
 /* static int journal_find_log_start(struct journal *); */
 static void journal_invalidate_superblock(struct journal *);
 static int journal_init(struct journal *);
+static int journal_descriptor_count_blocks(struct journal *, void *);
 
 static bool
 is_journal_block(void *data)
@@ -62,6 +65,22 @@ is_journal_block(void *data)
 	struct journal_block_header *jbh = 
 	    (struct journal_block_header *)data;
 	return (J_BSWAP32(jbh->jbh_magic) == JOURNAL_MAGIC);
+}
+
+static uint32_t
+journal_block_type(void *data)
+{
+	struct journal_block_header *jbh = 
+	    (struct journal_block_header *)data;
+	return J_BSWAP32(jbh->jbh_block_type);
+}
+
+static uint32_t
+journal_block_sequence(void *data)
+{
+	struct journal_block_header *jbh = 
+	    (struct journal_block_header *)data;
+	return J_BSWAP32(jbh->jbh_sequence);
 }
 
 static int
@@ -189,6 +208,19 @@ journal_get_block(struct journal *jp, daddr_t blockno, buf_t **out_buf)
 	return 0;
 }
 
+size_t
+journal_tag_size(struct journal *jp)
+{
+	size_t size =
+	    (jp->jrn_sb->jsb_feature_incompat | JOURNALF_INCOMPAT_CHECKSUM_V2) ?
+		sizeof(uint16_t) :
+		0;
+	size += (jp->jrn_sb->jsb_feature_incompat | JOURNALF_INCOMPAT_64BIT) ?
+		JOURNAL_TAGSIZE_64BIT :
+		JOURNAL_TAGSIZE;
+	return size;
+}
+
 static void
 journal_invalidate_superblock(struct journal *jp)
 {
@@ -216,7 +248,83 @@ journal_init(struct journal *jp)
 	jp->jrn_last       = last;
 	jp->jrn_max_blocks = jp->jrn_sb->jsb_max_blocks;
 	jp->jrn_block_size = jp->jrn_sb->jsb_block_size;
-	jp->jrn_log_start  = jp->jrn_first;
-	jp->jrn_log_end    = jp->jrn_first;
+	jp->jrn_log_start  = jp->jrn_sb->jsb_log_start;
+	//journal_find_log_end(jp);
 	return 0;
+}
+
+static __inline daddr_t
+journal_skip(struct journal *jp, daddr_t start, int n_blocks)
+{
+	daddr_t result = start + n_blocks;
+	while(result > jp->jrn_last) {
+		result -= (jp->jrn_last - jp->jrn_first);
+	}
+	return result;
+}
+
+static int
+journal_descriptor_count_blocks(struct journal *jp, void *data)
+{
+	uint16_t flags;
+	struct journal_descriptor_tag *tag;
+	char *c_data = (char *)data;
+	int data_index = 0;
+	size_t stride = journal_tag_size(jp);
+	int count = 1;
+	int max_size = jp->jrn_block_size;
+	if(jp->jrn_sb->jsb_feature_incompat |
+	   JOURNALF_INCOMPAT_CHECKSUM_V2) {
+		max_size -= sizeof(struct journal_descriptor_tail);
+	}
+	c_data += sizeof(struct journal_block_header);
+	while(data_index + stride <= max_size) {
+		tag = (struct journal_descriptor_tag *)(&(c_data[data_index]));
+		flags = J_BSWAP16(tag->jdt_flags);
+		if(flags & JOURNAL_TAG_LAST_ENTRY) {
+			return count;
+		}
+		data_index += stride;
+		if(!(flags & JOURNAL_TAG_SAME_UUID)) {
+			data_index += 16;
+		}
+		count++;
+	}
+	return count;
+}
+
+static int
+journal_next_transaction(struct journal *jp, daddr_t start, daddr_t *out_next)
+{
+	int result;
+	struct buf *jb_buf;
+	void *jb_data;
+	while(1) {
+		result = bread(jp->jrn_vp, start, jp->jrn_sb->jsb_block_size,
+			       NOCRED, B_MODIFY, &jb_buf);
+		if(result != 0) {
+			return result;
+		}
+		jb_data = jb_buf->b_data;
+		if(!is_journal_block(jb_data)) {
+			brelse(jb_buf, 0);
+			return EINVAL;
+		}
+		if(journal_block_type(jb_data) == JOURNAL_TYPE_DESCRIPTOR) {
+			int n = journal_descriptor_count_blocks(jp, jb_data);
+			brelse(jb_buf, 0);
+			start = journal_skip(jp, start, n);
+			continue;
+		}
+		else if(journal_block_type(jb_data) == JOURNAL_TYPE_COMMIT ||
+			journal_block_type(jb_data) == JOURNAL_TYPE_REVOKE) {
+			brelse(jb_buf, 0);
+			*out_next = journal_skip(jp, start, 1);			
+		}
+		else {
+#ifdef DEBUG_EXT2
+			printf("found a journal block of unknown type!\n");
+#endif			
+		}
+	}
 }
