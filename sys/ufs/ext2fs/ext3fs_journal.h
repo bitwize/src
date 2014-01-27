@@ -196,10 +196,14 @@ struct journal {
 	daddr_t   jrn_log_end;
 };
 
+size_t journal_tag_size(struct journal *jp);
+
+uint32_t journal_block_type(void *);
+uint32_t journal_block_sequence(void *);
+
 int journal_open(struct mount *, struct journal **);
 int journal_get_block(struct journal *, daddr_t, buf_t **);
 int journal_next_block(struct journal *, buf_t **);
-size_t journal_tag_size(struct journal *jp);
 int journal_close(struct journal *);
 
 #endif /* !_UFS_EXT2FS_EXT3FS_JOURNAL_H_ */

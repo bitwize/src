@@ -48,8 +48,6 @@
 #endif
 
 static bool is_journal_block(void *);
-static uint32_t journal_block_type(void *);
-static uint32_t journal_block_sequence(void *);
 static int journal_open_inode(struct mount *, struct vnode **,
     struct journal_superblock **);
 static void e3fs_jsb_bswap(struct journal_superblock *,
@@ -58,6 +56,8 @@ static void e3fs_jsb_bswap(struct journal_superblock *,
 static void journal_invalidate_superblock(struct journal *);
 static int journal_init(struct journal *);
 static int journal_descriptor_count_blocks(struct journal *, void *);
+static int journal_next_transaction(struct journal *, daddr_t, daddr_t *);
+
 
 static bool
 is_journal_block(void *data)
@@ -67,7 +67,7 @@ is_journal_block(void *data)
 	return (J_BSWAP32(jbh->jbh_magic) == JOURNAL_MAGIC);
 }
 
-static uint32_t
+uint32_t
 journal_block_type(void *data)
 {
 	struct journal_block_header *jbh = 
@@ -75,7 +75,7 @@ journal_block_type(void *data)
 	return J_BSWAP32(jbh->jbh_block_type);
 }
 
-static uint32_t
+uint32_t
 journal_block_sequence(void *data)
 {
 	struct journal_block_header *jbh = 
@@ -181,6 +181,7 @@ e3fs_jsb_bswap(struct journal_superblock *old,
 	new->jsb_max_blocks            = J_BSWAP32(old->jsb_max_blocks);
 	new->jsb_first_block           = J_BSWAP32(old->jsb_first_block);
 	new->jsb_sequence              = J_BSWAP32(old->jsb_sequence);
+	new->jsb_log_start             = J_BSWAP32(old->jsb_log_start);
 	new->jsb_feature_compat        = J_BSWAP32(old->jsb_feature_compat);
 	new->jsb_feature_incompat      = J_BSWAP32(old->jsb_feature_incompat);
 	new->jsb_feature_rocompat      = J_BSWAP32(old->jsb_feature_rocompat);
@@ -235,6 +236,7 @@ static int
 journal_init(struct journal *jp)
 {
 	daddr_t first, last;
+	daddr_t w;
 	
 	first      = jp->jrn_sb->jsb_first_block;
 	last       = jp->jrn_sb->jsb_max_blocks;
@@ -249,6 +251,20 @@ journal_init(struct journal *jp)
 	jp->jrn_max_blocks = jp->jrn_sb->jsb_max_blocks;
 	jp->jrn_block_size = jp->jrn_sb->jsb_block_size;
 	jp->jrn_log_start  = jp->jrn_sb->jsb_log_start;
+	/* jrn_log_start == 0 means "journal is flushed,
+	   volume is up to date" */
+#ifdef DEBUG_EXT2
+	printf("difference: %ld\n", (long)((char *)&(jp->jrn_sb->jsb_max_blocks) -
+					   (char *)&(jp->jrn_sb->jsb_block_size)));
+#endif		
+	if(jp->jrn_log_start == 0) {
+#ifdef DEBUG_EXT2
+		printf("journal flushed; no need to commit xacts\n");
+#endif		
+	} else {
+		w = jp->jrn_log_start;
+		while(!journal_next_transaction(jp, w, &w)) {}
+	}
 	//journal_find_log_end(jp);
 	return 0;
 }
@@ -300,6 +316,10 @@ journal_next_transaction(struct journal *jp, daddr_t start, daddr_t *out_next)
 	struct buf *jb_buf;
 	void *jb_data;
 	while(1) {
+#ifdef DEBUG_EXT2
+		printf("at journal block %lld\n", (long long int)start);
+#endif
+		
 		result = bread(jp->jrn_vp, start, jp->jrn_sb->jsb_block_size,
 			       NOCRED, B_MODIFY, &jb_buf);
 		if(result != 0) {
@@ -313,18 +333,31 @@ journal_next_transaction(struct journal *jp, daddr_t start, daddr_t *out_next)
 		if(journal_block_type(jb_data) == JOURNAL_TYPE_DESCRIPTOR) {
 			int n = journal_descriptor_count_blocks(jp, jb_data);
 			brelse(jb_buf, 0);
-			start = journal_skip(jp, start, n);
+#ifdef DEBUG_EXT2
+			printf("found a descriptor journal block; skipping %d blocks\n", n);
+#endif
+			start = journal_skip(jp, start + 1, n);
 			continue;
 		}
 		else if(journal_block_type(jb_data) == JOURNAL_TYPE_COMMIT ||
 			journal_block_type(jb_data) == JOURNAL_TYPE_REVOKE) {
+#ifdef DEBUG_EXT2
+			printf("found a %s journal block\n",
+			       (journal_block_type(jb_data) ==
+				JOURNAL_TYPE_COMMIT) ?
+			       "commit" :
+			       "revoke");
+#endif
 			brelse(jb_buf, 0);
-			*out_next = journal_skip(jp, start, 1);			
+			*out_next = journal_skip(jp, start, 1);
+			return 0;
 		}
 		else {
+			brelse(jb_buf, 0);
 #ifdef DEBUG_EXT2
 			printf("found a journal block of unknown type!\n");
-#endif			
+#endif
+			return EINVAL;
 		}
 	}
 }
